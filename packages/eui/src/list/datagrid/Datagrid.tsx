@@ -5,6 +5,7 @@ import {
   EuiSkeletonText,
   EuiSpacer,
   EuiTableSelectionType,
+  useEuiTheme,
 } from "@elastic/eui"
 import {
   useListContext,
@@ -13,7 +14,15 @@ import {
   useResourceDefinition,
   useTranslate,
 } from "@react-mool/core"
-import { ReactNode, SyntheticEvent, useCallback, useEffect, useMemo, useRef } from "react"
+import {
+  CSSProperties,
+  ReactNode,
+  SyntheticEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react"
 import isEqual from "react-fast-compare"
 import { useUpdateEffect } from "rooks"
 import { useGetFieldLabel } from "../../helpers"
@@ -28,6 +37,7 @@ import {
   skeletonSelection,
   toSkeletonColumns,
 } from "./DatagridSkeleton"
+import { ColumnWidths, MIN_AUTO_COLUMN_WIDTH } from "./ColumnResizer"
 import { DatagridToolbar } from "./DatagridToolbar"
 import { DatagridAction, DatagridRowClick } from "./types"
 import { useColumnSettingsStorage } from "./useColumnSettingsStorage"
@@ -36,14 +46,18 @@ import {
   canHandleRowClick,
   columnHeader,
   getDefaultRowClick,
+  getColumnId,
   getEuiSortField,
   getSortField,
   guessColumns,
+  parsePixels,
   toEuiAction,
   toEuiColumn,
 } from "./utils"
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+
+const SELECTION_COLUMN_WIDTH = 32
 
 export type DatagridProps<TRecord = any> = {
   columns?: ColumnElement[]
@@ -74,6 +88,8 @@ export type DatagridProps<TRecord = any> = {
   columnSettings?: boolean
   columnSettingsStorage?: Storage
   columnSettingsStorageKey?: string
+  /** Allows the user to resize the columns. Widths are stored with the column settings. */
+  resizableColumns?: boolean
 }
 
 export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRecord>) {
@@ -100,6 +116,7 @@ export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRec
     columnSettings = true,
     columnSettingsStorage,
     columnSettingsStorageKey,
+    resizableColumns = true,
   } = props
 
   const {
@@ -121,6 +138,7 @@ export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRec
   } = useListContext<TRecord>()
 
   const translate = useTranslate()
+  const { euiTheme } = useEuiTheme()
   const redirect = useRedirect()
   const resourceDefinition = useResourceDefinition(resource)
   const resourceDataProvider = useResourceDataProvider(resource)
@@ -137,7 +155,28 @@ export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRec
   })
 
   const columns = columnSettings ? columnSelector.orderedVisibleColumns : availableColumns
-  const euiColumns = columns.map((col) => toEuiColumn(col, resource, translate))
+
+  const { columnSettings: storedSettings, setColumnSettings } = columnSettingsStored
+  const columnWidths = resizableColumns ? storedSettings.widths : undefined
+  const setColumnWidths = (changedWidths: ColumnWidths) => {
+    const widths: Record<string, string> = {}
+    Object.entries({ ...storedSettings.widths, ...changedWidths }).forEach(
+      ([id, width]) => {
+        if (width) {
+          widths[id] = width
+        }
+      }
+    )
+    setColumnSettings({ ...storedSettings, widths })
+  }
+
+  const euiColumns = columns.map((col) => {
+    const id = getColumnId(col)
+    return toEuiColumn(col, resource, translate, {
+      width: columnWidths?.[id],
+      onResize: resizableColumns ? setColumnWidths : undefined,
+    })
+  })
 
   const actions = actionsProp
     ? actionsProp.map((action) => toEuiAction(action))
@@ -280,7 +319,10 @@ export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRec
   }
 
   // Add specific className when it's empty in order to style the empty view
-  const tableClassName = tableItems.length === 0 ? "euiBasicTable--empty" : undefined
+  const tableClassName =
+    tableItems.length === 0
+      ? "muiDatagrid__table euiBasicTable--empty"
+      : "muiDatagrid__table"
 
   // Screen reader sort announcement
   const getFieldLabel = useGetFieldLabel()
@@ -291,8 +333,30 @@ export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRec
       )
     : null
 
+  // Resized columns can make the table wider than its container (see ColumnResizer):
+  // then its min width is the sum of the column widths, leaving some space to the actions.
+  const tableMinWidth =
+    columnWidths && Object.keys(columnWidths).length > 0
+      ? (selectable ? SELECTION_COLUMN_WIDTH : 0) +
+        (actions ? MIN_AUTO_COLUMN_WIDTH : 0) +
+        columns.reduce(
+          (sum, col) =>
+            sum + (parsePixels(columnWidths[getColumnId(col)] ?? col.props.width) ?? 0),
+          0
+        )
+      : undefined
+
+  // Colors of the column resizers are set once here, instead of in every resizer
+  const resizeStyle = resizableColumns
+    ? ({
+        "--muiColumnResizerColor": euiTheme.border.color,
+        "--muiColumnResizerActiveColor": euiTheme.colors.primary,
+        "--muiDatagridMinWidth": tableMinWidth ? `${tableMinWidth}px` : undefined,
+      } as CSSProperties)
+    : undefined
+
   return (
-    <div>
+    <div style={resizeStyle}>
       <div ref={topRef} style={{ position: "relative", top: -scrollToTopOffset }}></div>
       {showToolbar && (
         <DatagridToolbar
