@@ -4,6 +4,7 @@ import {
   EuiScreenReaderLive,
   EuiSkeletonText,
   EuiSpacer,
+  EuiTablePagination,
   EuiTableSelectionType,
   useEuiTheme,
 } from "@elastic/eui"
@@ -204,6 +205,15 @@ export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRec
     [setPage]
   )
 
+  // handle bottom pagination onChangeItemsPerPage
+  const handleChangePageSize = useCallback(
+    (size: number) => {
+      setPage(1)
+      setPageSize(size)
+    },
+    [setPage, setPageSize]
+  )
+
   const rowClick = getDefaultRowClick(rowClickProp, resourceDefinition)
 
   // If `selectable` prop is not explicitly set, it is true in case `rowClick` is set to `select`
@@ -290,6 +300,18 @@ export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRec
       topRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" })
     }
   }, [page])
+
+  // The bottom pagination is rendered outside of EuiBasicTable, which scrolls horizontally
+  // when the resized columns are wider than the container (see Admin.scss)
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const showBottomPaginationBar = showPagination && showBottomPagination && total > 0
+
+  // Back to the last page when the current one is out of range (as EuiBasicTable does)
+  useEffect(() => {
+    if (showBottomPaginationBar && page > pageCount) {
+      setPage(pageCount)
+    }
+  }, [showBottomPaginationBar, page, pageCount, setPage])
 
   // Loading with no rows to show: on first load, or when reloading an empty result
   // (eg. after resetting the filters). Show a skeleton instead of the "no items" message.
@@ -380,17 +402,6 @@ export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRec
         items={tableItems}
         columns={tableColumns}
         loading={isLoading}
-        pagination={
-          showPagination && showBottomPagination
-            ? {
-                pageIndex: page - 1,
-                pageSize,
-                totalItemCount: total,
-                showPerPageOptions: showPageSize,
-                pageSizeOptions,
-              }
-            : undefined
-        }
         sorting={{
           sort: {
             field: getEuiSortField(sortField, columnsProp) as any,
@@ -406,6 +417,20 @@ export function Datagrid<TRecord extends object = any>(props: DatagridProps<TRec
         rowProps={showSkeletonRows ? undefined : rowProps}
         noItemsMessage={renderNoItemsMessage()}
       />
+      {showBottomPaginationBar && (
+        <>
+          <EuiSpacer size="m" />
+          <EuiTablePagination
+            activePage={page - 1}
+            pageCount={pageCount}
+            itemsPerPage={pageSize}
+            itemsPerPageOptions={pageSizeOptions}
+            showPerPageOptions={showPageSize}
+            onChangePage={handleChangePage}
+            onChangeItemsPerPage={handleChangePageSize}
+          />
+        </>
+      )}
     </div>
   )
 }

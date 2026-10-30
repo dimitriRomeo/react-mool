@@ -177,7 +177,8 @@
   }
 }
 
-/* Resized columns can exceed the available width: scroll instead of overflowing */
+/* Resized columns can exceed the available width: scroll instead of overflowing.
+   The bottom pagination is rendered outside, so it doesn't scroll with the table. */
 .muiDatagrid__table {
   overflow-x: auto;
 }
